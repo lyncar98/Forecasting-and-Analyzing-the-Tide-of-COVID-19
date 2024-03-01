@@ -1,0 +1,281 @@
+---
+title: "Forecasting and Analyzing the Tide of COVID-19: A Data-Driven Approach to Public Health Strategy in Minnesota"
+author: "Lyndon Carlson"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+# Introduction
+
+The COVID-19 pandemic has presented an unprecedented challenge to global health systems, economies, and societies at large. Since its emergence in late 2019, the virus has spread rapidly across continents, prompting an urgent response from the international scientific community. This report aims to contribute to the understanding of the pandemic's dynamics through a comprehensive analysis of COVID-19 case and death data sourced from the John Hopkins University's repository.
+
+The objective of this analysis is multifaceted: to explore the correlation between population size and the spread of the virus, to examine the rate of change in cases and deaths over time, particularly focusing on the state of Minnesota, and to employ predictive modeling to forecast future trends. By leveraging data science techniques and statistical modeling, this report seeks to provide insights that can aid in the formulation of effective public health strategies and policies.
+
+The report is structured into several key sections, beginning with a detailed preparation of the datasets, including sourcing, cleaning, and transforming the data into a format suitable for analysis. Following this, we delve into a series of analytical explorations, starting with a correlation analysis between population sizes and pandemic impact, a rate of change analysis to understand the temporal dynamics of the virus's spread, and finally, predictive modeling to anticipate future case and death counts in Minnesota.
+
+As I navigate through these analyses, my goal is to uncover patterns and trends that can inform better decision-making and preparedness in the face of ongoing and future public health challenges. It is my hope that this report will contribute valuable insights to the collective efforts in combating the COVID-19 pandemic and enhancing resilience against similar threats in the future.
+
+
+# Configurations
+Before executing this package, ensure that the following packages are installed: "tidyverse", "lubridate", "readr", "dplyr", "ggplot2", and "forecast".
+
+- **Readr** is utilized for its fast and friendly file reading capabilities, which is essential for handling large datasets efficiently.
+
+- **Tidyverse** offers a collection of R packages designed for data science, making data manipulation, visualization, and analysis more convenient.
+
+- **Lubridate** is a package that makes it easier to work with dates and times in R, which is crucial when dealing with time-series data.
+
+- **Dplyr** is a grammar of data manipulation, providing a consistent set of verbs that help you solve the most common data manipulation challenges.
+
+- **Ggplot2** is a system for creating visually appealing and complex graphics, based on The Grammar of Graphics.
+
+- **Forecast** provides methods and tools for displaying and analysing univariate time series forecasts including exponential smoothing via state space models and automatic ARIMA modelling.
+
+Each library contributes to various stages of data processing and analysis, ensuring a smooth workflow from data sourcing to predictive modeling.
+
+
+```{r setup}
+# Suppress warnings for tidiness
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE) 
+suppressWarnings(suppressPackageStartupMessages({
+  library(tidyverse)
+  library(readr)
+  library(lubridate)
+  library(dplyr)
+  library(ggplot2)
+  library(forecast)
+}))
+```
+# Data Preparation
+The following preparation process ensures that the data is representative, complete, and formatted correctly for the analytical techniques to be applied. This section walks through the process of preparing the COVID-19 dataset, sourced from the John Hopkins University repository, to be fit for the purpose of my analysis.
+
+In the subsections that follow, I will cover the steps taken from obtaining the raw time-series data to converting it into a format that is best for my analysis. I will pivot the data to ensure dates are in a single column, facilitating time-series analysis, and I will clean the data to remove any unnecessary variables that could cloud my analysis, such as geographical coordinates not required for my study. Lastly, I will join the data from various locations to allow for a holistic view of the pandemic’s progression across different regions.
+
+
+## Data Sourcing
+This data is sourced from John Hopkins' github page. Specifically this is from their time-series repository. This data is quite robust and includes both global and US data information. Moreover, this data has been clearly documented and is transparent in it's manipulation.\
+
+Below you can see that five files have been imported and named. Global Cases, Global Deaths, US Cases, US Deaths, and UID (used later for global populations).
+
+```{r data}
+url_in <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+uid_lookup_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+
+file_names <- c(
+  "time_series_covid19_confirmed_US.csv",
+  "time_series_covid19_confirmed_global.csv",
+  "time_series_covid19_deaths_US.csv",
+  "time_series_covid19_deaths_global.csv",
+  "time_series_covid19_recovered_global.csv"
+)
+
+urls <- str_c(url_in, file_names) 
+
+#Datasets
+global_cases <- read_csv(urls[2], show_col_types = FALSE)
+global_deaths <- read_csv(urls[4], show_col_types = FALSE)
+US_cases <- read_csv(urls[1], show_col_types = FALSE)
+US_deaths <- read_csv(urls[3], show_col_types = FALSE)
+uid <- read_csv(uid_lookup_url, show_col_types = FALSE) %>%
+  select(-c(Lat, Long_, Combined_Key, code3, iso2, iso3, Admin2))
+
+```
+
+## Transforming and cleaning
+The formatting of global cases have each date as an individual column. I will be pivoting this dataset to include a date and cases column. After the pivoting both the date and the case number will be listed as records rather than variables. This transformation will enable easy querying for time and location analysis.\
+
+Additionally, upon further review there are unnecessary columns for this analysis. I will not need spatial data so I will be dropping the Lat and Long columns.\
+
+This process is repeated for all four datasets.
+
+```{r cleaner}
+global_cases <- global_cases %>%
+  pivot_longer(cols = -c(`Province/State`,
+                         `Country/Region`,
+                         Lat,
+                         Long),
+               names_to = "date",
+               values_to = "cases") %>%
+  select(-c(Lat, Long))
+global_cases
+
+global_deaths <- global_deaths %>%
+  pivot_longer(cols = -c(`Province/State`,
+                         `Country/Region`,
+                         Lat,
+                         Long),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(-c(Lat, Long))
+global_deaths
+
+US_cases <- US_cases %>%
+  pivot_longer(cols = -(UID:Combined_Key),
+               names_to = "date",
+               values_to = "cases") %>%
+  select(Admin2:cases) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat, Long_))
+US_cases
+
+US_deaths <- US_deaths %>%
+  pivot_longer(cols = -(UID:Population),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(Admin2:deaths) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat, Long_))
+US_deaths
+```
+
+## Joining Datasets
+To merge our data into one location, I will be joining the dataset by global data and US data. This will allow me to run analysis on how case data related to death data. \
+I deviate from other analysis by not dropping rows that do not contain zero cases. I do not want to drop rows that could also be records of deaths. I also believe that including records that have zero cases allows for robust temporal and geographical analysis.
+```{r joiner}
+#Joining, by = c("Province/State", "Country/Region", "date")
+global <- global_cases %>%
+  full_join(global_deaths) %>%
+  rename(Country_Region = `Country/Region`,
+         Province_State = `Province/State`) %>%
+  mutate(date = mdy(date) )
+global <- global %>%
+  unite("Combined_Key",
+        c(Province_State, Country_Region),
+        sep = ", ",
+        na.rm = TRUE,
+        remove = FALSE)
+global <- global %>%
+  left_join(uid, by = c("Province_State", "Country_Region")) %>%
+  select(-c(UID, FIPS)) %>%
+  select(Province_State, Country_Region, date, cases, deaths, Population, Combined_Key)
+global
+
+US <- US_cases %>%
+  full_join(US_deaths)
+US
+```
+
+# Reviewing Data
+Before delving deeper into specific analyses, I will review the data. This step involves summarizing the datasets to gain a high-level understanding of their structure, the range of values, and any potential anomalies that might need addressing. By examining summary statistics and distributions, I can assess data quality, identify missing values, and get a sense of the data's overall characteristics. This preliminary review informs my analytical approach and helps ensure the reliability of my findings.
+
+The summaries provided below offer insights into the scope of the datasets, including the number of records, the range of dates covered, and key metrics such as the number of cases, deaths, and population sizes. This overview is an  foundation for the more detailed analysis that follows.\
+
+-**US Data: **The US dataset provides detailed records at the county level, including case counts, death tolls, and population figures.\
+\
+-**Global Data: **The global dataset encompasses COVID-19 data from countries around the world, aggregating case and death counts along with population figures. \
+
+This summary indicates a vast range of COVID-19 impacts across different regions, with total case numbers reaching as high as over 100 million. Similar to the US data, it covers the period from January 22, 2020, to March 9, 2023, providing a global perspective on the pandemic.
+\
+By reviewing these summaries, I am better positioned to understand the data's complexities and how they might influence our analyses. This ensures my approach is grounded in a thorough understanding of the datasets.
+
+``` {r summary}
+summary(US)
+summary(global)
+```
+
+
+
+# Analysis
+After preparing the data, the next step is the analysis, which uncovers patterns, tests hypotheses, and provides actionable insights. This section is devoted to delving into the datasets to extract meaningful information that can inform public health responses and policy decisions. Through a series of analytical approaches, I aim to understand the dynamics of the COVID-19 pandemic and its interplay with various demographic factors.\
+
+The analysis begins with a Correlation Analysis to explore potential relationships between population sizes and the impact of the pandemic. Understanding these relationships is vital for strategic planning and effective resource allocation.\
+
+Following this, I conduct a Rate of Change Analysis for a regional focus on Minnesota. This analysis will highlight the trends in the data over time, revealing how the spread of the virus accelerates or decelerates in response to interventions and other factors.\
+
+Lastly, I engage in Predictive Modeling to forecast the future trajectory of the pandemic in Minnesota. This will provide a glimpse into the potential future scenarios, enabling better preparation and response planning.\
+
+Each of these analyses contributes to a more comprehensive understanding of the pandemic's characteristics and potential future developments.
+
+
+## Correlation Analysis - Global/US
+Understanding the relationship between population size and the impact of COVID-19 is crucial for resource allocation and policy-making. In this section, I investigate the correlation between the population of a region and the reported cases and deaths due to COVID-19. The aim is to discern if there's a proportional increase in cases and deaths with the population size, which could suggest higher transmission rates in densely populated areas or potential underreporting in regions with smaller populations.
+
+```{r Corr}
+combined_data <- bind_rows(US, global)
+
+# Calculate the correlation coefficient between population and cases, and population and deaths
+correlation_cases <- cor(combined_data$Population, combined_data$cases, use = "complete.obs")
+correlation_deaths <- cor(combined_data$Population, combined_data$deaths, use = "complete.obs")
+
+# Print out the correlation coefficients
+print(paste("Correlation between Population and Cases:", correlation_cases))
+print(paste("Correlation between Population and Deaths:", correlation_deaths))
+
+```
+Upon executing the correlation analysis, the results revealed significant relationships between the population size of a region and both the reported cases and deaths due to COVID-19. The correlation coefficient between population and cases was found to be 0.486, while the correlation between population and deaths was slightly higher at 0.512. These coefficients suggest a moderate positive correlation, indicating that as the population size increases, there is a tendency for both cases and deaths to also increase. This relationship shows the importance of considering population density and size in pandemic response strategies, as larger populations may face higher risks of transmission and mortality.
+
+These findings highlight the complex dynamics at play in the spread and impact of COVID-19 across different regions. While population size is certainly a factor in the pandemic's reach and severity, it is also clear that other variables, such as public health interventions, healthcare capacity, and community compliance with safety measures, play crucial roles. The moderate correlation coefficients suggest that while population size is a significant factor, it is not the sole determinant of pandemic outcomes. This analysis contributes to a nuanced understanding of how demographic factors intersect with public health challenges, offering valuable insights for policymakers and health officials navigating the ongoing response to COVID-19.
+
+## Rate of Change Analysis - Minnesota
+Monitoring the rate of change in reported cases and deaths provides insights into the virus's spread dynamics and the effectiveness of public health interventions. This analysis focuses on Minnesota, using a time series dataset to calculate the daily growth rate of COVID-19 cases and deaths. I look for trends such as spikes or declines in the rate of change, which may correlate with public health policies or other events.
+```{r ROCMN}
+# Filter for Minnesota data
+minnesota_data <- US %>%
+  filter(Province_State == "Minnesota") %>%
+  group_by(date) %>%
+  summarise(cases = sum(cases), deaths = sum(deaths)) %>%
+  mutate(cases_growth_rate = (cases - lag(cases)) / lag(cases),
+         deaths_growth_rate = (deaths - lag(deaths)) / lag(deaths))
+
+# Plot the Rate of Change for cases in Minnesota
+ggplot(minnesota_data, aes(x = date, y = cases_growth_rate)) +
+  geom_line() +
+  labs(title = "Daily Growth Rate of COVID-19 Cases in Minnesota")
+
+# Plot the Rate of Change for deaths in Minnesota
+ggplot(minnesota_data, aes(x = date, y = deaths_growth_rate)) +
+  geom_line() +
+  labs(title = "Daily Growth Rate of COVID-19 Deaths in Minnesota")
+```
+
+#### Cases Growth Rate Visualization
+The graph for the daily growth rate of COVID-19 cases in Minnesota illustrates a pronounced spike at the beginning, indicative of the initial outbreak and then rapid spread of the virus. Following this initial surge, the growth rate experiences several fluctuations, with noticeable peaks that may correlate to subsequent waves of infection. However, the general trend shows a decline over time, suggesting that measures taken have been effective in controlling the spread of the virus. Notably, as we progress into 2022 and beyond, the growth rate stabilizes significantly, reflecting a combination of factors including the population's developing immunity, either through infection or vaccination, and the implementation of effective public health strategies.
+
+#### Deaths Growth Rate Visualization
+The daily growth rate of COVID-19 deaths in Minnesota also displays an early peak, which then sharply decreases, paralleling the trend seen in cases growth. The decrease in death rates could be attributed to improved treatment protocols, the rollout of vaccinations, and perhaps a shift in the demographic profile of those infected. Over time, the graph indicates a persistent decline in the death rate growth, settling into a near-flat line as we approach 2023. This stabilization aligns with the control of case numbers and suggests that the state may have moved past the most lethal phase of the pandemic.
+
+## Predictive Modeling - Minnesota
+Predictive models aim to anticipate the course of the pandemic and preparing accordingly. In this section, I develop a time series predictive model for COVID-19 cases in Minnesota. The model will provide a 30-day forecast, which can be utilized by healthcare systems to ensure readiness in case of a surge or to plan for scaling back resources as cases decline.
+``` {r PMMN}
+# ARIMA model for cases in Minnesota
+minnesota_cases_ts <- ts(minnesota_data$cases, frequency = 365)
+fit_arima_minnesota <- auto.arima(minnesota_cases_ts)
+
+# Forecast the next 30 days for Minnesota
+forecast_cases_minnesota <- forecast(fit_arima_minnesota, h = 30)
+
+# Plot the forecast for Minnesota
+autoplot(forecast_cases_minnesota) +
+  labs(title = "30-Day Forecast of COVID-19 Cases in Minnesota")
+```
+
+#### Visualization of the 30-Day Forecast for COVID-19 Cases in Minnesota
+The visualization above illustrates the 30-day forecast of COVID-19 cases in Minnesota, based on the ARIMA model. The plot displays the historical data of confirmed cases, with a forecasted trend extending into the near future. The projection is depicted with a confidence interval, represented by the shaded area, which accounts for the uncertainty inherent in predictive modeling.
+
+The forecast indicates a continuation of the current trend in case numbers, with an expected range of variability. This forecast model is a critical tool for planning purposes. It can help healthcare systems anticipate the need for hospital beds, ventilators, and other medical resources. It can also guide policymakers in deciding whether to tighten or relax public health measures, such as social distancing mandates and mask requirements.
+
+
+
+# Potential Bias in the Report
+
+When interpreting the findings of this report, it is important to consider the potential biases that may influence the results and conclusions. Bias in data analysis can stem from a variety of sources, ranging from the data collection process to the analytical methods employed.
+
+### Data Collection Bias
+The datasets used in this report are sourced from John Hopkins University, which compiles data reported by health departments across the globe. There may be inherent biases due to underreporting or misreporting of cases and deaths, particularly in regions with less robust healthcare infrastructure. Additionally, testing rates vary widely between regions and over time, which can affect case counts and, subsequently, the reported growth rates and correlations with population size.
+
+### Selection Bias
+Our analyses focused primarily on the state of Minnesota and the United States, which may not be representative of trends and behaviors in other regions. The conclusions drawn from this subset of data may not accurately reflect the global situation and should be generalized with caution.
+
+### Model Bias
+The predictive model used in this report is based on an ARIMA time series model. While ARIMA models are powerful for forecasting, they assume that past patterns predict future ones, which may not account for sudden changes in the pandemic's trajectory, such as the emergence of new variants or changes in public health policy. Moreover, the model's accuracy is dependent on the quality of the data fed into it, which, as mentioned, could be biased or incomplete.
+
+### Confirmation Bias
+There is also the risk of confirmation bias, where the analysis might be unconsciously steered to confirm pre-existing beliefs or hypotheses about the pandemic. It is crucial to approach data analysis with an open mind and to interpret the results in an objective manner.
+
+
+# Conclusion
+The analyses conducted in this study illuminate the dynamics of the COVID-19 pandemic. The correlation analysis indicates a moderate positive correlation between population size and the number of cases and deaths, suggesting that more populous regions tend to have higher reported cases and deaths. The rate of change analysis for Minnesota displays pronounced early spikes in both cases and deaths, followed by a notable stabilization, highlighting the effectiveness of interventions over time. Lastly, the predictive modeling forecasts a continuation of the current trend in COVID-19 cases in Minnesota, providing a crucial planning tool for healthcare systems and policymakers as they prepare for the coming month.
+
+These insights emphasize the critical role of data-driven decision-making in the management of public health crises. The ability to continuously monitor and model the pandemic's course allows for the real-time adaptation of strategies, ensuring that responses are informed and effective. As the COVID-19 pandemic persists, the data and analyses presented here will serve as valuable assets in guiding both immediate and strategic long-term responses, ultimately aiming to protect and promote public health amidst an evolving global challenge.
+
